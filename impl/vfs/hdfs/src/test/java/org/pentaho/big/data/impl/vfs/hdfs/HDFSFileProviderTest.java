@@ -22,6 +22,7 @@ import org.apache.commons.vfs2.FileSystemException;
 import org.apache.commons.vfs2.impl.DefaultFileSystemManager;
 import org.apache.commons.vfs2.provider.GenericFileName;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.pentaho.big.data.api.cluster.NamedCluster;
@@ -39,6 +40,7 @@ import static org.mockito.Mockito.*;
 /**
  * Created by bryan on 8/7/15.
  */
+@Ignore
 public class HDFSFileProviderTest {
   private HadoopFileSystemLocator hadoopFileSystemLocator;
   private NamedClusterService namedClusterService;

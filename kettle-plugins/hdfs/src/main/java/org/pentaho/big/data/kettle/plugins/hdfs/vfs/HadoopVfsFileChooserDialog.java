@@ -22,6 +22,8 @@
 
 package org.pentaho.big.data.kettle.plugins.hdfs.vfs;
 
+import static org.pentaho.big.data.api.cluster.NamedCluster.*;
+import java.io.IOException;
 import org.apache.commons.vfs2.FileObject;
 import org.apache.commons.vfs2.FileSystemException;
 import org.apache.commons.vfs2.FileSystemOptions;
@@ -42,6 +44,7 @@ import org.pentaho.di.core.logging.LogChannel;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.variables.Variables;
 import org.pentaho.di.core.vfs.KettleVFS;
+import org.pentaho.di.core.vfs.configuration.KettleGenericFileSystemConfigBuilder;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.ui.spoon.Spoon;
 import org.pentaho.runtime.test.RuntimeTester;
@@ -118,6 +121,7 @@ public class HadoopVfsFileChooserDialog extends CustomVfsUiPanel {
           connect();
         } catch ( Exception e ) {
           // To prevent errors from multiple event firings.
+          log.logDebug( e.getMessage() );
         }
       }
     } );
@@ -185,21 +189,31 @@ public class HadoopVfsFileChooserDialog extends CustomVfsUiPanel {
     // cluster was just selected.
     schemeName = "wasb".equals( nc.getStorageScheme() ) ? "wasb" : "hdfs";
 
+    String connectionString =  hdfsConnection.getConnectionString( schemeName );
+    FileSystemOptions fsoptions = new FileSystemOptions();
+    KettleGenericFileSystemConfigBuilder builder = KettleGenericFileSystemConfigBuilder.getInstance();
     FileObject root = rootFile;
-    try {
-      root = KettleVFS.getFileObject( hdfsConnection.getConnectionString( schemeName ) );
+    try {     
+      builder.setParameter( fsoptions, NAMED_CLUSTER_FS_OPTION, nc.toXmlForEmbed( NAMED_CLUSTER_XML_TAG ), "vfs." + schemeName + "." + NAMED_CLUSTER_FS_OPTION,  connectionString );
+      root = KettleVFS.getFileObject( connectionString, fsoptions );
     } catch ( KettleFileException exc ) {
       showMessageAndLog( BaseMessages.getString( PKG, "HadoopVfsFileChooserDialog.error" ), BaseMessages.getString( PKG,
         "HadoopVfsFileChooserDialog.Connection.error" ), exc.getMessage() );
+    } catch ( IOException exc ) {
+      showMessageAndLog( BaseMessages.getString( PKG, "HadoopVfsFileChooserDialog.error" ), BaseMessages.getString( PKG,
+          "HadoopVfsFileChooserDialog.Connection.error" ), exc.getMessage() );
     }
-
     vfsFileChooserDialog.setRootFile( root );
     vfsFileChooserDialog.setSelectedFile( root );
     rootFile = root;
   }
 
+  /**
+   * resolve file with <b>new</b> File SystemOptions.
+   */
   public FileObject resolveFile( String fileUri ) throws FileSystemException {
     try {
+      //should we use new instance of FileSystemOptions? should it be depdrecated?
       return KettleVFS.getFileObject( fileUri, getVariableSpace(), getFileSystemOptions() );
     } catch ( KettleFileException e ) {
       throw new FileSystemException( e );
@@ -214,6 +228,11 @@ public class HadoopVfsFileChooserDialog extends CustomVfsUiPanel {
     }
   }
 
+  /**
+   * 
+   * @return <b>new</b>FileSystem Options
+   * @throws FileSystemException
+   */
   protected FileSystemOptions getFileSystemOptions() throws FileSystemException {
     FileSystemOptions opts = new FileSystemOptions();
     return opts;

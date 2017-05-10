@@ -32,6 +32,11 @@ import java.util.Comparator;
  * Created by bryan on 6/24/15.
  */
 public interface NamedCluster extends Cloneable, VariableSpace {
+  
+  public static final String NAMED_CLUSTER_FS_OPTION = "namedClusterFSOption";
+
+  public static final String NAMED_CLUSTER_XML_TAG = "namedClusterTag";
+
   String getName();
 
   void setName( String name );

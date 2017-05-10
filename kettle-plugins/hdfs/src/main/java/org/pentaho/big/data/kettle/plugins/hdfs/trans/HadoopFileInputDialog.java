@@ -25,6 +25,7 @@ package org.pentaho.big.data.kettle.plugins.hdfs.trans;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.vfs2.FileObject;
 import org.apache.commons.vfs2.FileSystemException;
+import org.apache.commons.vfs2.FileSystemOptions;
 import org.apache.commons.vfs2.FileType;
 import org.eclipse.jface.wizard.Wizard;
 import org.eclipse.jface.wizard.WizardDialog;
@@ -75,11 +76,13 @@ import org.pentaho.di.core.exception.KettleFileException;
 import org.pentaho.di.core.fileinput.FileInputList;
 import org.pentaho.di.core.gui.TextFileInputFieldInterface;
 import org.pentaho.di.core.logging.LogChannel;
-import org.pentaho.di.core.row.ValueMeta;
+import org.pentaho.di.core.row.value.ValueMetaBase;
 import org.pentaho.di.core.util.EnvUtil;
 import org.pentaho.di.core.util.StringUtil;
+import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.Variables;
 import org.pentaho.di.core.vfs.KettleVFS;
+import org.pentaho.di.core.vfs.configuration.KettleGenericFileSystemConfigBuilder;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.Trans;
 import org.pentaho.di.trans.TransMeta;
@@ -112,6 +115,9 @@ import org.pentaho.di.ui.trans.steps.fileinput.text.TextFileImportWizardPage2;
 import org.pentaho.metastore.api.exceptions.MetaStoreException;
 import org.pentaho.vfs.ui.CustomVfsUiPanel;
 import org.pentaho.vfs.ui.VfsFileChooserDialog;
+
+import static org.pentaho.big.data.api.cluster.NamedCluster.NAMED_CLUSTER_FS_OPTION;
+import static org.pentaho.big.data.api.cluster.NamedCluster.NAMED_CLUSTER_XML_TAG;
 
 import java.io.File;
 import java.io.IOException;
@@ -1879,7 +1885,7 @@ public class HadoopFileInputDialog extends BaseStepDialog implements StepDialogI
           new ColumnInfo( BaseMessages.getString( BASE_PKG, "TextFileInputDialog.NameColumn.Column" ),
               ColumnInfo.COLUMN_TYPE_TEXT, false ),
           new ColumnInfo( BaseMessages.getString( BASE_PKG, "TextFileInputDialog.TypeColumn.Column" ),
-              ColumnInfo.COLUMN_TYPE_CCOMBO, ValueMeta.getTypes(), true ),
+              ColumnInfo.COLUMN_TYPE_CCOMBO, ValueMetaBase.getTypes(), true ),
           new ColumnInfo( BaseMessages.getString( BASE_PKG, "TextFileInputDialog.FormatColumn.Column" ),
               ColumnInfo.COLUMN_TYPE_FORMAT, 2 ),
           new ColumnInfo( BaseMessages.getString( BASE_PKG, "TextFileInputDialog.PositionColumn.Column" ),
@@ -1899,7 +1905,7 @@ public class HadoopFileInputDialog extends BaseStepDialog implements StepDialogI
           new ColumnInfo( BaseMessages.getString( BASE_PKG, "TextFileInputDialog.IfNullColumn.Column" ),
               ColumnInfo.COLUMN_TYPE_TEXT, false ),
           new ColumnInfo( BaseMessages.getString( BASE_PKG, "TextFileInputDialog.TrimTypeColumn.Column" ),
-              ColumnInfo.COLUMN_TYPE_CCOMBO, ValueMeta.trimTypeDesc, true ),
+              ColumnInfo.COLUMN_TYPE_CCOMBO, ValueMetaBase.trimTypeDesc, true ),
           new ColumnInfo( BaseMessages.getString( BASE_PKG, "TextFileInputDialog.RepeatColumn.Column" ),
               ColumnInfo.COLUMN_TYPE_CCOMBO, new String[] { BaseMessages.getString( BASE_PKG, "System.Combo.Yes" ),
                   BaseMessages.getString( BASE_PKG, "System.Combo.No" ) }, true ) };
@@ -2329,7 +2335,7 @@ public class HadoopFileInputDialog extends BaseStepDialog implements StepDialogI
 
       TableItem item = wFields.getNonEmpty( i );
       field.setName( item.getText( 1 ) );
-      field.setType( ValueMeta.getType( item.getText( 2 ) ) );
+      field.setType( ValueMetaBase.getType( item.getText( 2 ) ) );
       field.setFormat( item.getText( 3 ) );
       field.setPosition( Const.toInt( item.getText( 4 ), -1 ) );
       field.setLength( Const.toInt( item.getText( 5 ), -1 ) );
@@ -2339,7 +2345,7 @@ public class HadoopFileInputDialog extends BaseStepDialog implements StepDialogI
       field.setGroupSymbol( item.getText( 9 ) );
       field.setNullString( item.getText( 10 ) );
       field.setIfNullValue( item.getText( 11 ) );
-      field.setTrimType( ValueMeta.getTrimTypeByDesc( item.getText( 12 ) ) );
+      field.setTrimType( ValueMetaBase.getTrimTypeByDesc( item.getText( 12 ) ) );
       field.setRepeated( BaseMessages.getString( BASE_PKG, "System.Combo.Yes" ).equalsIgnoreCase( item.getText( 13 ) ) );
 
       ( meta.inputFiles.inputFields )[i] = field;
@@ -2924,10 +2930,12 @@ public class HadoopFileInputDialog extends BaseStepDialog implements StepDialogI
           FileObject rootFile = null;
           FileObject initialFile = null;
           FileObject defaultInitialFile = null;
+          //will populate this options 
+          FileSystemOptions fsoptions = new FileSystemOptions();
 
           boolean isCluster = false;
           if ( !clusterName.equals( LOCAL_ENVIRONMENT ) && !clusterName.equals( S3_ENVIRONMENT ) ) {
-            if ( Const.isEmpty( path ) ) {
+            if ( Utils.isEmpty( path ) ) {
               path = "/";
             }
             NamedCluster namedCluster = namedClusterService.getNamedClusterByName( clusterName, getMetaStore() );
@@ -2936,6 +2944,13 @@ public class HadoopFileInputDialog extends BaseStepDialog implements StepDialogI
             }
             isCluster = true;
             path = namedCluster.processURLsubstitution( path, getMetaStore(), transMeta );
+            KettleGenericFileSystemConfigBuilder builder = KettleGenericFileSystemConfigBuilder.getInstance();
+            try {
+              builder.setParameter( fsoptions, NAMED_CLUSTER_FS_OPTION, namedCluster.toXmlForEmbed( NAMED_CLUSTER_XML_TAG ), "vfs." + 
+              namedCluster.getStorageScheme() + "." + NAMED_CLUSTER_FS_OPTION,  path );
+            } catch ( IOException e1 ) {
+              log.logError( e1.getMessage() );
+            }
           }
 
           boolean resolvedInitialFile = false;
@@ -2944,7 +2959,7 @@ public class HadoopFileInputDialog extends BaseStepDialog implements StepDialogI
             String fileName = transMeta.environmentSubstitute( path );
             if ( fileName != null && !fileName.equals( "" ) ) {
               try {
-                initialFile = KettleVFS.getFileObject( fileName );
+                initialFile = KettleVFS.getFileObject( fileName, fsoptions );
                 resolvedInitialFile = true;
               } catch ( Exception ex ) {
                 showMessageAndLog( BaseMessages.getString( PKG, "HadoopFileInputDialog.Connection.Error.title" ),
@@ -2952,10 +2967,10 @@ public class HadoopFileInputDialog extends BaseStepDialog implements StepDialogI
                 return;
               }
               File startFile = new File( System.getProperty( "user.home" ) );
-              defaultInitialFile = KettleVFS.getFileObject( startFile.getAbsolutePath() );
+              defaultInitialFile = KettleVFS.getFileObject( startFile.getAbsolutePath(), fsoptions );
               rootFile = initialFile.getFileSystem().getRoot();
             } else {
-              defaultInitialFile = KettleVFS.getFileObject( Spoon.getInstance().getLastFileOpened() );
+              defaultInitialFile = KettleVFS.getFileObject( Spoon.getInstance().getLastFileOpened(), fsoptions );
             }
           }
 

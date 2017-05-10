@@ -20,25 +20,34 @@ package org.pentaho.big.data.impl.vfs.hdfs;
 import org.apache.commons.vfs2.Capability;
 import org.apache.commons.vfs2.FileName;
 import org.apache.commons.vfs2.FileSystem;
+import org.apache.commons.vfs2.FileSystemConfigBuilder;
 import org.apache.commons.vfs2.FileSystemException;
 import org.apache.commons.vfs2.FileSystemOptions;
 import org.apache.commons.vfs2.UserAuthenticationData;
 import org.apache.commons.vfs2.impl.DefaultFileSystemManager;
 import org.apache.commons.vfs2.provider.AbstractOriginatingFileProvider;
 import org.apache.commons.vfs2.provider.FileNameParser;
-import org.apache.commons.vfs2.provider.GenericFileName;
 import org.pentaho.big.data.api.cluster.NamedCluster;
 import org.pentaho.big.data.api.cluster.NamedClusterService;
 import org.pentaho.big.data.api.initializer.ClusterInitializationException;
 import org.pentaho.bigdata.api.hdfs.HadoopFileSystemLocator;
 import org.pentaho.di.core.vfs.KettleVFS;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.w3c.dom.Document;
+import org.xml.sax.InputSource;
 
+import java.io.StringReader;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 
+import javax.xml.parsers.DocumentBuilderFactory;
+
 public class HDFSFileProvider extends AbstractOriginatingFileProvider {
+  
+  protected static Logger logger = LoggerFactory.getLogger( HDFSFileProvider.class );
   /**
    * The scheme this provider was designed to support
    */
@@ -98,18 +107,9 @@ public class HDFSFileProvider extends AbstractOriginatingFileProvider {
 
   @Override protected FileSystem doCreateFileSystem( final FileName name, final FileSystemOptions fileSystemOptions )
     throws FileSystemException {
-    GenericFileName genericFileName = (GenericFileName) name.getRoot();
-    String hostName = genericFileName.getHostName();
-    int port = genericFileName.getPort();
-    // TODO: load from metastore
-    NamedCluster namedCluster = namedClusterService.getClusterTemplate();
-    namedCluster.setHdfsHost( hostName );
-    if ( port > 0 ) {
-      namedCluster.setHdfsPort( String.valueOf( port ) );
-    } else {
-      namedCluster.setHdfsPort( "" );
-    }
-    namedCluster.setMapr( MAPRFS.equals( name.getScheme() ) );
+    NamedCluster namedCluster = namedClusterFromFSOptions( fileSystemOptions );
+    //if named cluster null, will use template
+    namedCluster = namedCluster == null ? namedClusterService.getClusterTemplate() : namedCluster;
     try {
       return new HDFSFileSystem( name, fileSystemOptions, hadoopFileSystemLocator.getHadoopFilesystem( namedCluster,
         URI.create( name.getURI() == null ? "" : name.getURI() ) ) );
@@ -120,5 +120,29 @@ public class HDFSFileProvider extends AbstractOriginatingFileProvider {
 
   @Override public Collection<Capability> getCapabilities() {
     return capabilities;
+  }
+
+  @Override
+  public FileSystemConfigBuilder getConfigBuilder() {
+    return HDFSFileSystemConfigBuilder.getInstance();
+  }
+
+  /**
+   * load namedCluster from {@link FileSystemOptions}
+   * @param fileSystemOptions
+   * @return loaded cluster or null if the loading is failed
+   */
+  private NamedCluster namedClusterFromFSOptions( final FileSystemOptions fileSystemOptions ) {
+    String namedClusterXML = HDFSFileSystemConfigBuilder.getInstance().getNamedClusterFSOption( fileSystemOptions );
+    DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+    InputSource src = new InputSource( new StringReader( namedClusterXML ) );
+    Document doc = null;
+    try {
+      doc = dbf.newDocumentBuilder().parse( src );
+    } catch ( Exception e ) {
+      logger.debug( "Unable to load named cluster from fsOptions. Will use template." + e.getMessage() );
+      return null;
+    }
+    return doc != null ? namedClusterService.getClusterTemplate().fromXmlForEmbed( doc.getDocumentElement() ) : null;
   }
 }
